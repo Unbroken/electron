@@ -1,0 +1,153 @@
+name: Build Electron
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v33.0.0-custom.1)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+            workspace: 'D:\AEB'
+          - arch: arm64
+            runner: windows-2025
+            workspace: 'D:\AEB'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+    steps:
+      - name: Check disk space (pre-build)
+        shell: bash
+        run: df -h
+
+      - name: Configure git
+        shell: bash
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+
+      - name: Install depot_tools
+        shell: powershell
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git C:\depot_tools
+          echo "C:\depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable corepack
+        shell: bash
+        run: corepack enable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure gclient
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path ${{ matrix.workspace }} | Out-Null
+          @"
+          solutions = [
+            {
+              "name": "src/electron",
+              "url": "${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {
+                "src/third_party/squirrel.mac": None,
+                "src/third_party/squirrel.mac/vendor/ReactiveObjC": None,
+                "src/third_party/squirrel.mac/vendor/Mantle": None,
+              },
+              "custom_vars": {
+                "checkout_pgo_profiles": False,
+                "checkout_clang_tidy": False,
+                "install_sysroot": False,
+                "checkout_nacl": False,
+                "checkout_openxr": False,
+              },
+            },
+          ]
+          target_os = ["win"]
+          target_os_only = True
+          "@ | Set-Content -Path "${{ matrix.workspace }}\.gclient" -Encoding UTF8
+
+      - name: Sync dependencies
+        shell: powershell
+        run: |
+          Set-Location ${{ matrix.workspace }}
+          & gclient sync --no-history -j 16
+
+      - name: Set CHROMIUM_BUILDTOOLS_PATH
+        shell: bash
+        run: echo "CHROMIUM_BUILDTOOLS_PATH=${{ matrix.workspace }}\\src\\buildtools" >> "$GITHUB_ENV"
+
+      - name: Generate build config
+        shell: powershell
+        run: |
+          Set-Location ${{ matrix.workspace }}\src
+          $version = "${{ inputs.release_tag }}" -replace '^v', ''
+          & gn gen out/Release --args="import(\`"//electron/build/args/all.gn\`") is_debug=false is_component_build=false is_component_ffmpeg=true is_official_build=false symbol_level=0 blink_symbol_level=0 enable_nacl=false target_cpu=\`"${{ matrix.arch }}\`" override_electron_version=\`"$version\`""
+
+      - name: Build dist.zip
+        shell: powershell
+        run: |
+          Set-Location ${{ matrix.workspace }}\src
+          & ninja -C out/Release electron:electron_dist_zip
+
+      - name: Check disk space (post-build)
+        shell: bash
+        run: df -h
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-win32-${{ matrix.arch }}
+          path: ${{ matrix.workspace }}\src\out\Release\dist.zip
+          retention-days: 3
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-win32-x64
+          path: artifacts/x64
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-win32-arm64
+          path: artifacts/arm64
+
+      - name: Rename artifacts
+        run: |
+          mv artifacts/x64/dist.zip electron-win32-x64.zip
+          mv artifacts/arm64/dist.zip electron-win32-arm64.zip
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "Electron ${{ inputs.release_tag }}" \
+            --generate-notes \
+            electron-win32-x64.zip \
+            electron-win32-arm64.zip
