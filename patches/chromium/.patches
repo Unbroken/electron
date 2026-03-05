@@ -207,3 +207,4 @@ cherry-pick-64f023ac1648.patch
 fix_ignore_non-occluding_windows_in_the_mac_occlusion_checker.patch
 cherry-pick-d73358403b31.patch
 feat_font_render_hinting_windows.patch
+feat_honor_disable_lcd_text_flag_on_windows.patch
