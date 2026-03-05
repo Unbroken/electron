@@ -151,3 +151,4 @@ graphite_handle_out_of_order_recording_errors.patch
 ozone_wayland_treat_dnd_drop_performed_with_none_action_as_a.patch
 cherry-pick-e045399a1ecb.patch
 feat_font_render_hinting_windows.patch
+feat_honor_disable_lcd_text_flag_on_windows.patch
