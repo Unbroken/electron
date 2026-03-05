@@ -167,3 +167,4 @@ cherry-pick-04f66fb96767.patch
 cherry-pick-449a1ea22a42.patch
 cherry-pick-54657772619c.patch
 feat_font_render_hinting_windows.patch
+feat_honor_disable_lcd_text_flag_on_windows.patch
