@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erik Olofsson <erik@olofsson.info>
+Date: Thu, 5 Mar 2026 18:39:57 +0100
+Subject: feat: honor --disable-lcd-text flag in Windows font render params
+
+On Windows, subpixel_rendering was always derived from the system
+ClearType setting (SPI_GETFONTSMOOTHINGTYPE), ignoring the
+--disable-lcd-text command line flag. This caused the flag to have
+no effect on FontCache::lcd_text_enabled_, so Blink would still
+create fonts with kSubpixelAntiAlias edging. Skia would then
+render via ClearType and average the RGB channels to grayscale,
+producing blurry text instead of true grayscale antialiasing.
+
+Override subpixel_rendering to SUBPIXEL_RENDERING_NONE when
+--disable-lcd-text is present, matching the behavior of disabling
+ClearType in Windows settings.
+
+diff --git a/ui/gfx/font_render_params_win.cc b/ui/gfx/font_render_params_win.cc
+index a7eb9010eaf09141e47c704458fbccaecfa225e6..2b5857452246391577be91548222602596cd76e0 100644
+--- a/ui/gfx/font_render_params_win.cc
++++ b/ui/gfx/font_render_params_win.cc
+@@ -110,6 +110,12 @@ class CachedFontRenderParams {
+       }
+     }
+ 
++    // Allow disabling subpixel rendering via --disable-lcd-text command line
++    // flag, overriding the Windows ClearType system setting.
++    if (command_line->HasSwitch("disable-lcd-text")) {
++      params_->subpixel_rendering = FontRenderParams::SUBPIXEL_RENDERING_NONE;
++    }
++
+     if (base::FeatureList::IsEnabled(
+             features::kUseGammaContrastRegistrySettings)) {
+       params_->text_contrast = FontUtilWin::GetContrastFromRegistry();
